@@ -17,7 +17,10 @@ def normalize_phone(raw: str) -> str:
 def parse_number(text: str) -> int | None:
     """Parse a user-typed number. Returns None if it isn't one."""
     try:
-        return int(text.replace(",", ""))
+        number =  text.replace(",", "")
+        if number.isdigit() and int(number) > 0:
+            return int(number)
+        return
     except ValueError:
         return None
 

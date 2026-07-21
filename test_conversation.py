@@ -39,3 +39,14 @@ def test_bad_input_does_not_advance():
       assert "number" in handle_message(u, "banana")
       assert u.onboarding_state == AWAITING_CALORIE_GOAL
       assert u.calorie_goal is None
+
+def test_non_positive_input_does_not_advance():
+    user = FakeUser()
+    handle_message(user, "start")
+
+    for invalid_goal in ("0", "-200"):
+        reply = handle_message(user, invalid_goal)
+
+        assert reply == "Please send a number, like 1800."
+        assert user.onboarding_state == AWAITING_CALORIE_GOAL
+        assert user.calorie_goal is None
