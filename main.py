@@ -1,12 +1,26 @@
-from fastapi import FastAPI
-from fastapi import FastAPI, Form, Response
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI, Form, Response
+from sqlalchemy.orm import Session
 from twilio.twiml.messaging_response import MessagingResponse
 
-app = FastAPI()
+from database import Base, engine, get_db
+from models import User
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    yield
+
+app = FastAPI(lifespan=lifespan)
 
 @app.get("/health")
 def read_root():
     return {"status": "ok"}
+
+@app.post("/test/users/{phone_number}", tags=["debug"])
+def get_or_create_user(phone_number: str, db: Session = Depends(get_db)):
+    """TEMPORARY: dev-only endpoint for verifying user persistence. Remove before deploy."""
 
 
 @app.post("/whatsapp")
