@@ -1,9 +1,8 @@
 from typing import Optional
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
-
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from database import Base
 
 
