@@ -3,3 +3,5 @@ uvicorn[standard]
 sqlalchemy
 twilio
 python-multipart
+python-dotenv
+requests

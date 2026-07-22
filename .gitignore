@@ -3,3 +3,4 @@ mealbot.db
 __pycache__/
 .env
 venv/
+uploads/

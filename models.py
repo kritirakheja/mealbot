@@ -13,13 +13,13 @@ class User(Base):
     calorie_goal: Mapped[Optional[int]] = mapped_column(default=None)
     protein_goal: Mapped[Optional[int]] = mapped_column(default=None)
     onboarding_state: Mapped[str] = mapped_column(String(32), default="new")
-
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
 
 class Meal(Base):
     __tablename__ = "meals"
