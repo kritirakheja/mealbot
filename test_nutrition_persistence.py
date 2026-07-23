@@ -1,0 +1,165 @@
+from pathlib import Path
+
+import main
+from database import Base
+from models import Meal, NutritionEstimate as NutritionEstimateRecord, User
+from nutrition import (
+    FoodItem,
+    NutritionError,
+    NutritionEstimate,
+    NutritionRange,
+)
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import sessionmaker
+
+
+def make_test_session(tmp_path):
+    database_path = tmp_path / "test_mealbot.db"
+    engine = create_engine(
+        f"sqlite:///{database_path}",
+        connect_args={"check_same_thread": False},
+    )
+    session_factory = sessionmaker(bind=engine)
+    Base.metadata.create_all(engine)
+    return session_factory
+
+
+def create_stored_meal(session_factory, message_sid):
+    db = session_factory()
+    user = User(
+        phone="919999999999",
+        onboarding_state="active",
+        calorie_goal=2000,
+        protein_goal=120,
+    )
+    db.add(user)
+
+    meal = Meal(
+        user_phone=user.phone,
+        twilio_message_sid=message_sid,
+        image_url="https://example.com/test.jpg",
+        image_content_type="image/jpeg",
+        meal_type="lunch",
+        status="stored",
+    )
+    db.add(meal)
+    db.commit()
+
+    meal_id = meal.id
+    db.close()
+    return meal_id
+
+
+def build_estimate():
+    return NutritionEstimate(
+        food_items=[
+            FoodItem(
+                name="dal and rice",
+                portion_description="one medium plate",
+                calories_kcal=NutritionRange(minimum=450, maximum=600),
+                protein_g=NutritionRange(minimum=15, maximum=22),
+                carbs_g=NutritionRange(minimum=70, maximum=90),
+                fat_g=NutritionRange(minimum=10, maximum=18),
+                fibre_g=NutritionRange(minimum=8, maximum=12),
+            )
+        ],
+        total_calories_kcal=NutritionRange(minimum=450, maximum=600),
+        total_protein_g=NutritionRange(minimum=15, maximum=22),
+        total_carbs_g=NutritionRange(minimum=70, maximum=90),
+        total_fat_g=NutritionRange(minimum=10, maximum=18),
+        total_fibre_g=NutritionRange(minimum=8, maximum=12),
+    )
+
+
+def test_nutrition_result_persists_without_external_calls(
+    monkeypatch,
+    tmp_path,
+):
+    session_factory = make_test_session(tmp_path)
+    meal_id = create_stored_meal(session_factory, "SM_SUCCESS")
+    sent_messages = []
+
+    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    monkeypatch.setattr(
+        main,
+        "analyze_meal_image",
+        lambda image_path, mime_type: build_estimate(),
+    )
+    monkeypatch.setattr(
+        main,
+        "send_whatsapp_message",
+        lambda recipient, sender, message: sent_messages.append(message),
+    )
+
+    main.analyze_and_reply(
+        meal_id=meal_id,
+        image_path=Path("unused-test-image.jpg"),
+        image_content_type="image/jpeg",
+        recipient="whatsapp:+919999999999",
+        sender="whatsapp:+14155238886",
+    )
+
+    verification_db = session_factory()
+    saved_meal = verification_db.get(Meal, meal_id)
+    saved_estimate = verification_db.scalar(
+        select(NutritionEstimateRecord).where(
+            NutritionEstimateRecord.meal_id == meal_id
+        )
+    )
+
+    assert saved_meal.status == "analyzed"
+    assert saved_meal.analysis_error is None
+    assert saved_estimate is not None
+    assert saved_estimate.calories_min == 450
+    assert saved_estimate.calories_max == 600
+    assert saved_estimate.protein_min == 15
+    assert saved_estimate.protein_max == 22
+    assert saved_estimate.model_name == "gemini-flash-latest"
+    assert saved_estimate.food_items[0]["name"] == "dal and rice"
+    assert len(sent_messages) == 1
+    assert "Today's progress:" in sent_messages[0]
+    assert "Calories: 450–600 / 2,000 kcal" in sent_messages[0]
+    assert "Protein: 15–22 / 120g" in sent_messages[0]
+    verification_db.close()
+
+
+def test_nutrition_failure_persists_without_external_calls(
+    monkeypatch,
+    tmp_path,
+):
+    session_factory = make_test_session(tmp_path)
+    meal_id = create_stored_meal(session_factory, "SM_FAILURE")
+    sent_messages = []
+
+    def fail_analysis(image_path, mime_type):
+        raise NutritionError("test analysis failure")
+
+    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    monkeypatch.setattr(main, "analyze_meal_image", fail_analysis)
+    monkeypatch.setattr(
+        main,
+        "send_whatsapp_message",
+        lambda recipient, sender, message: sent_messages.append(message),
+    )
+
+    main.analyze_and_reply(
+        meal_id=meal_id,
+        image_path=Path("unused-test-image.jpg"),
+        image_content_type="image/jpeg",
+        recipient="whatsapp:+919999999999",
+        sender="whatsapp:+14155238886",
+    )
+
+    verification_db = session_factory()
+    saved_meal = verification_db.get(Meal, meal_id)
+    saved_estimate = verification_db.scalar(
+        select(NutritionEstimateRecord).where(
+            NutritionEstimateRecord.meal_id == meal_id
+        )
+    )
+
+    assert saved_meal.status == "analysis_failed"
+    assert saved_meal.analysis_error == "test analysis failure"
+    assert saved_estimate is None
+    assert len(sent_messages) == 1
+    verification_db.close()
