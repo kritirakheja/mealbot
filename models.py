@@ -82,3 +82,23 @@ class NutritionEstimate(Base):
         DateTime(timezone=True),
         server_default=func.now(),
     )
+
+class MealAnalysisAttempt(Base):
+    __tablename__ = "meal_analysis_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    meal_id: Mapped[int] = mapped_column(
+        ForeignKey("meals.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    decision_action: Mapped[str | None] = mapped_column(
+        String(32), nullable=True
+    )
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    provider_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+    )

@@ -2,9 +2,17 @@ from pathlib import Path
 
 import main
 from database import Base
-from models import Meal, NutritionEstimate as NutritionEstimateRecord, User
+from models import (
+    Meal,
+    MealAnalysisAttempt,
+    NutritionEstimate as NutritionEstimateRecord,
+    User,
+)
 from nutrition import (
+    Confidence,
     FoodItem,
+    ImageQuality,
+    MealImageAnalysis,
     NutritionError,
     NutritionEstimate,
     NutritionRange,
@@ -71,6 +79,18 @@ def build_estimate():
     )
 
 
+def build_analysis():
+    return MealImageAnalysis(
+        image_quality=ImageQuality.CLEAR,
+        visible_foods=["dal", "rice"],
+        dish_candidates=["dal and rice"],
+        dish_confidence=Confidence.HIGH,
+        portion_confidence=Confidence.HIGH,
+        assumptions=["The plate is a standard dinner plate."],
+        estimate=build_estimate(),
+    )
+
+
 def test_nutrition_result_persists_without_external_calls(
     monkeypatch,
     tmp_path,
@@ -83,7 +103,7 @@ def test_nutrition_result_persists_without_external_calls(
     monkeypatch.setattr(
         main,
         "analyze_meal_image",
-        lambda image_path, mime_type: build_estimate(),
+        lambda image_path, mime_type: build_analysis(),
     )
     monkeypatch.setattr(
         main,
@@ -106,6 +126,11 @@ def test_nutrition_result_persists_without_external_calls(
             NutritionEstimateRecord.meal_id == meal_id
         )
     )
+    saved_attempt = verification_db.scalar(
+        select(MealAnalysisAttempt).where(
+            MealAnalysisAttempt.meal_id == meal_id
+        )
+    )
 
     assert saved_meal.status == "analyzed"
     assert saved_meal.analysis_error is None
@@ -116,6 +141,11 @@ def test_nutrition_result_persists_without_external_calls(
     assert saved_estimate.protein_max == 22
     assert saved_estimate.model_name == "gemini-flash-latest"
     assert saved_estimate.food_items[0]["name"] == "dal and rice"
+    assert saved_attempt is not None
+    assert saved_attempt.decision_action == "auto_log"
+    assert saved_attempt.result["assumptions"] == [
+        "The plate is a standard dinner plate."
+    ]
     assert len(sent_messages) == 1
     assert "Today's progress:" in sent_messages[0]
     assert "Calories: 450–600 / 2,000 kcal" in sent_messages[0]
@@ -157,9 +187,76 @@ def test_nutrition_failure_persists_without_external_calls(
             NutritionEstimateRecord.meal_id == meal_id
         )
     )
+    saved_attempt = verification_db.scalar(
+        select(MealAnalysisAttempt).where(
+            MealAnalysisAttempt.meal_id == meal_id
+        )
+    )
 
     assert saved_meal.status == "analysis_failed"
     assert saved_meal.analysis_error == "test analysis failure"
     assert saved_estimate is None
+    assert saved_attempt is not None
+    assert saved_attempt.provider_error == "test analysis failure"
     assert len(sent_messages) == 1
+    verification_db.close()
+
+
+def test_unusable_image_is_audited_without_nutrition_log(
+    monkeypatch,
+    tmp_path,
+):
+    session_factory = make_test_session(tmp_path)
+    meal_id = create_stored_meal(session_factory, "SM_BLURRY")
+    sent_messages = []
+    blurry_analysis = MealImageAnalysis(
+        image_quality=ImageQuality.UNUSABLE,
+        visible_foods=[],
+        dish_candidates=[],
+        dish_confidence=Confidence.LOW,
+        portion_confidence=Confidence.LOW,
+        assumptions=[],
+        ambiguity_reason="The photo is heavily blurred.",
+        estimate=None,
+    )
+
+    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    monkeypatch.setattr(
+        main,
+        "analyze_meal_image",
+        lambda image_path, mime_type: blurry_analysis,
+    )
+    monkeypatch.setattr(
+        main,
+        "send_whatsapp_message",
+        lambda recipient, sender, message: sent_messages.append(message),
+    )
+
+    main.analyze_and_reply(
+        meal_id=meal_id,
+        image_path=Path("unused-test-image.jpg"),
+        image_content_type="image/jpeg",
+        recipient="whatsapp:+919999999999",
+        sender="whatsapp:+14155238886",
+    )
+
+    verification_db = session_factory()
+    saved_meal = verification_db.get(Meal, meal_id)
+    saved_estimate = verification_db.scalar(
+        select(NutritionEstimateRecord).where(
+            NutritionEstimateRecord.meal_id == meal_id
+        )
+    )
+    saved_attempt = verification_db.scalar(
+        select(MealAnalysisAttempt).where(
+            MealAnalysisAttempt.meal_id == meal_id
+        )
+    )
+
+    assert saved_meal.status == "needs_new_image"
+    assert saved_estimate is None
+    assert saved_attempt is not None
+    assert saved_attempt.decision_action == "request_new_image"
+    assert len(sent_messages) == 1
+    assert "haven’t logged" in sent_messages[0]
     verification_db.close()

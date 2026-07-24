@@ -1,8 +1,21 @@
 import base64
+from enum import Enum
 from pathlib import Path
 
 from google import genai
 from pydantic import BaseModel, Field, model_validator
+
+
+class ImageQuality(str, Enum):
+    CLEAR = "clear"
+    USABLE = "usable"
+    UNUSABLE = "unusable"
+
+
+class Confidence(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
 
 
 class NutritionRange(BaseModel):
@@ -35,13 +48,40 @@ class NutritionEstimate(BaseModel):
     total_fibre_g: NutritionRange
 
 
-NUTRITION_PROMPT = """
-Analyze this meal photo for a calorie-tracking app.
+class MealImageAnalysis(BaseModel):
+    image_quality: ImageQuality
+    visible_foods: list[str]
+    dish_candidates: list[str] = Field(max_length=3)
+    dish_confidence: Confidence
+    portion_confidence: Confidence
+    assumptions: list[str]
+    ambiguity_reason: str | None = None
+    estimate: NutritionEstimate | None = None
 
-- Identify only food visibly supported by the image.
-- Estimate portions conservatively.
-- Return calories, protein, carbs, fat, and fibre as ranges, never exact values. Range width should match your uncertainty: narrow for clear portions, wide for ambiguous ones (hidden oil/ghee, sauces, unclear size).
-- No medical, weight-loss, or moralizing advice.
+
+NUTRITION_PROMPT = """
+Inspect this meal photo for a nutrition logging application.
+
+Return:
+- image_quality: clear, usable, or unusable
+- visible_foods: only foods visibly supported by the image
+- dish_candidates: up to three plausible dish names
+- dish_confidence: confidence in the best dish identification
+- portion_confidence: confidence in the visible serving size
+- assumptions: every assumption needed to estimate nutrition
+- ambiguity_reason: why the image is uncertain, or null
+- estimate: nutrition ranges, or null when a responsible estimate
+  cannot be made
+
+Rules:
+- Mark the image unusable if blur, darkness, obstruction, or framing
+  prevents reliable food identification.
+- Do not invent hidden ingredients or serving sizes.
+- Use ranges rather than exact nutrition values.
+- Wider uncertainty must produce wider ranges.
+- Return estimate=null for an unusable image.
+- Do not provide medical advice, dieting prescriptions, moral judgments,
+  or suggestions that the user should eat more or less.
 - Return only JSON matching the supplied schema.
 """
 
@@ -51,7 +91,7 @@ class NutritionError(Exception):
 def analyze_meal_image(
     image_path: Path,
     mime_type: str,
-) -> NutritionEstimate:
+) -> MealImageAnalysis:
 
     with image_path.open("rb") as f:
         image_bytes = f.read()
@@ -78,11 +118,11 @@ def analyze_meal_image(
           response_format={
               "type": "text",
               "mime_type": "application/json",
-              "schema": NutritionEstimate.model_json_schema(),
+              "schema": MealImageAnalysis.model_json_schema(),
           },
       )
 
-      return NutritionEstimate.model_validate_json(interaction.output_text)
+      return MealImageAnalysis.model_validate_json(interaction.output_text)
 
     except Exception as e:
       raise NutritionError(f"Failed to analyze meal image: {e}") from e

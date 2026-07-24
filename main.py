@@ -27,6 +27,9 @@ from nutrition import (
     format_nutrition_reply,
 )
 
+from decision_policy import MealAction, decide_meal_action
+from models import MealAnalysisAttempt
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
@@ -148,10 +151,16 @@ def analyze_and_reply(
         print(f"[{meal.twilio_message_sid}] Calling Gemini...")
 
         try:
-            estimate = analyze_meal_image(image_path, image_content_type)
+            analysis = analyze_meal_image(image_path, image_content_type)
         except NutritionError as error:
             meal.status = "analysis_failed"
             meal.analysis_error = str(error)
+            db.add(
+                MealAnalysisAttempt(
+                    meal_id=meal.id,
+                    provider_error=str(error),
+                )
+            )
             db.commit()
 
             print(f"[{meal.twilio_message_sid}] Nutrition error: {error}")
@@ -160,49 +169,73 @@ def analyze_and_reply(
                 "its nutrition. Please try another photo."
             )
         else:
-            nutrition_record = NutritionEstimateRecord(
-                meal_id=meal.id,
-                food_items=[
-                    item.model_dump(mode="json")
-                    for item in estimate.food_items
-                ],
-                calories_min=estimate.total_calories_kcal.minimum,
-                calories_max=estimate.total_calories_kcal.maximum,
-                protein_min=estimate.total_protein_g.minimum,
-                protein_max=estimate.total_protein_g.maximum,
-                carbs_min=estimate.total_carbs_g.minimum,
-                carbs_max=estimate.total_carbs_g.maximum,
-                fat_min=estimate.total_fat_g.minimum,
-                fat_max=estimate.total_fat_g.maximum,
-                fibre_min=estimate.total_fibre_g.minimum,
-                fibre_max=estimate.total_fibre_g.maximum,
-                model_name="gemini-flash-latest",
+            decision = decide_meal_action(analysis)
+            db.add(
+                MealAnalysisAttempt(
+                    meal_id=meal.id,
+                    result=analysis.model_dump(mode="json"),
+                    decision_action=decision.action.value,
+                    decision_reason=decision.reason,
+                )
             )
 
-            db.add(nutrition_record)
-            meal.status = "analyzed"
             meal.analysis_error = None
 
-            # Make the new estimate visible to the aggregation query while
-            # keeping the estimate and status in the same transaction.
-            db.flush()
-            user = db.get(User, meal.user_phone)
-            totals = get_daily_nutrition_totals(db, meal.user_phone)
+            if decision.action == MealAction.AUTO_LOG:
+                estimate = analysis.estimate
+                assert estimate is not None
 
-            db.commit()
-
-            print(f"[{meal.twilio_message_sid}] Gemini analysis complete.")
-            message = format_nutrition_reply(estimate, meal.meal_type)
-            if (
-                user is not None
-                and user.calorie_goal is not None
-                and user.protein_goal is not None
-            ):
-                message += "\n\n" + format_daily_progress(
-                    totals,
-                    user.calorie_goal,
-                    user.protein_goal,
+                nutrition_record = NutritionEstimateRecord(
+                    meal_id=meal.id,
+                    food_items=[
+                        item.model_dump(mode="json")
+                        for item in estimate.food_items
+                    ],
+                    calories_min=estimate.total_calories_kcal.minimum,
+                    calories_max=estimate.total_calories_kcal.maximum,
+                    protein_min=estimate.total_protein_g.minimum,
+                    protein_max=estimate.total_protein_g.maximum,
+                    carbs_min=estimate.total_carbs_g.minimum,
+                    carbs_max=estimate.total_carbs_g.maximum,
+                    fat_min=estimate.total_fat_g.minimum,
+                    fat_max=estimate.total_fat_g.maximum,
+                    fibre_min=estimate.total_fibre_g.minimum,
+                    fibre_max=estimate.total_fibre_g.maximum,
+                    model_name="gemini-flash-latest",
                 )
+
+                db.add(nutrition_record)
+                meal.status = "analyzed"
+
+                # Make the new estimate visible to the aggregation query while
+                # keeping the estimate and status in the same transaction.
+                db.flush()
+                user = db.get(User, meal.user_phone)
+                totals = get_daily_nutrition_totals(db, meal.user_phone)
+
+                db.commit()
+
+                print(f"[{meal.twilio_message_sid}] Gemini analysis complete.")
+                message = format_nutrition_reply(estimate, meal.meal_type)
+                if (
+                    user is not None
+                    and user.calorie_goal is not None
+                    and user.protein_goal is not None
+                ):
+                    message += "\n\n" + format_daily_progress(
+                        totals,
+                        user.calorie_goal,
+                        user.protein_goal,
+                    )
+            else:
+                pending_statuses = {
+                    MealAction.REQUEST_NEW_IMAGE: "needs_new_image",
+                    MealAction.ASK_DISH_CHOICE: "awaiting_dish_choice",
+                    MealAction.ASK_SERVING_SIZE: "awaiting_serving_size",
+                }
+                meal.status = pending_statuses[decision.action]
+                message = decision.user_message
+                db.commit()
 
         try:
             send_whatsapp_message(recipient, sender, message)
