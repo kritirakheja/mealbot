@@ -1,4 +1,4 @@
-import os
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -9,7 +9,6 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Form, Response
 from sqlalchemy.orm import Session
-from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 
 from database import Base, SessionLocal, engine, get_db
@@ -17,6 +16,8 @@ from models import Meal, NutritionEstimate as NutritionEstimateRecord, User
 
 from conversation import ACTIVE, handle_message, normalize_phone
 from meal_logic import get_current_time_in_timezone, infer_meal_type
+from messaging import send_whatsapp_message
+from reminders import start_reminder_tasks
 
 from storage import StorageError, download_and_save_image
 
@@ -29,7 +30,13 @@ from nutrition import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    yield
+    reminder_tasks = start_reminder_tasks()
+    try:
+        yield
+    finally:
+        for task in reminder_tasks:
+            task.cancel()
+        await asyncio.gather(*reminder_tasks, return_exceptions=True)
 
 app = FastAPI(lifespan=lifespan)
 
@@ -119,24 +126,6 @@ def format_daily_progress(
         f"• Protein: {totals.protein_min:.0f}–"
         f"{totals.protein_max:.0f} / {protein_goal}g "
         f"({protein_min_percent:.0f}–{protein_max_percent:.0f}%)"
-    )
-
-
-def send_whatsapp_message(
-    recipient: str,
-    sender: str,
-    message: str,
-) -> None:
-    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
-    if not account_sid or not auth_token:
-        raise RuntimeError("Twilio credentials are not configured.")
-
-    client = Client(account_sid, auth_token)
-    client.messages.create(
-        to=recipient,
-        from_=sender,
-        body=message,
     )
 
 
