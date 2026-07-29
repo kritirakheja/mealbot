@@ -58,4 +58,4 @@ def handle_message(user: User, body: str) -> str:
             "Send a meal photo whenever you eat."
         )
 
-    return f"state: {user.onboarding_state}"
+    return "Send 'start' to begin."
