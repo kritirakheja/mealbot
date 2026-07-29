@@ -17,7 +17,8 @@ ALLOWED_CONTENT_TYPES = {
     "image/webp": ".webp",
 }
 MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
-UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
+DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).resolve().parent)))
+UPLOADS_DIR = DATA_DIR / "uploads"
 
 
 class StorageError(Exception):

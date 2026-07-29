@@ -1,9 +1,13 @@
 # database configuration
 
+import os
+from pathlib import Path
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-SQLALCHEMY_DATABASE_URL = "sqlite:///./mealbot.db"
+DATA_DIR = Path(os.getenv("DATA_DIR", "."))
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATA_DIR / 'mealbot.db'}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
