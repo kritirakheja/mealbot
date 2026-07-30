@@ -1,0 +1,20 @@
+[
+  {
+    "id": "fried_rice_bowl",
+    "image_path": "images/fried_rice_bowl.jpg",
+    "content_type": "image/jpeg",
+    "expected_decision": null,
+    "expected_calories_kcal": null,
+    "expected_protein_g": null,
+    "notes": "PLACEHOLDER — needs real ground truth. Vegetable fried rice with paneer, partially eaten, in a white bowl."
+  },
+  {
+    "id": "yogurt_fruit_bowl",
+    "image_path": "images/yogurt_fruit_bowl.jpg",
+    "content_type": "image/jpeg",
+    "expected_decision": null,
+    "expected_calories_kcal": null,
+    "expected_protein_g": null,
+    "notes": "PLACEHOLDER — needs real ground truth. Yogurt with avocado, mango, and plum slices."
+  }
+]

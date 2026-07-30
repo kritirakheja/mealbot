@@ -6,3 +6,4 @@ python-multipart
 python-dotenv
 requests
 google-genai
+pytest

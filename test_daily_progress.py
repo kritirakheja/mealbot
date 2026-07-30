@@ -130,5 +130,5 @@ def test_daily_progress_formats_ranges_and_goal_percentages():
         protein_goal=100,
     )
 
-    assert "Calories: 700–950 / 2,000 kcal (35–48%)" in message
-    assert "Protein: 35–47 / 100g (35–47%)" in message
+    assert "Calories: 700–950 / 2,000 kcal (1,050–1,300 kcal left)" in message
+    assert "Protein: 35–47 / 100g (53–65g left)" in message

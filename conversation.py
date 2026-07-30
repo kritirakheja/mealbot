@@ -25,6 +25,13 @@ def parse_number(text: str) -> int | None:
         return None
 
 
+WELCOME_TEXT = (
+    "👋 I'm MealBot — send a photo of your meal and I'll estimate its "
+    "nutrition and track it against your daily calorie/protein goals.\n\n"
+    "Send 'start' to set up your goals."
+)
+
+
 def handle_message(user: User, body: str) -> str:
     """Update the user in place based on their message. Return the reply text."""
     text = body.strip().lower()
@@ -35,9 +42,15 @@ def handle_message(user: User, body: str) -> str:
         user.protein_goal = None
         return "Reset. Send 'start' to begin again."
 
-    if text == "start":
+    if text in ("start", "goals"):
+        updating_goals = user.onboarding_state == ACTIVE
         user.onboarding_state = AWAITING_CALORIE_GOAL
+        if updating_goals:
+            return "Let's update your goals. What is your new daily calorie goal?"
         return "Welcome! What is your daily calorie goal?"
+
+    if text == "help":
+        return WELCOME_TEXT
 
     if user.onboarding_state == AWAITING_CALORIE_GOAL:
         value = parse_number(text)
@@ -55,7 +68,8 @@ def handle_message(user: User, body: str) -> str:
         user.onboarding_state = ACTIVE
         return (
             f"You're set: {user.calorie_goal:,} kcal and {user.protein_goal}g protein daily.\n"
-            "Send a meal photo whenever you eat."
+            "Send a meal photo whenever you eat. Type 'help' anytime to see "
+            "what else I can do."
         )
 
-    return "Send 'start' to begin."
+    return "Send 'start' to begin, or 'help' to learn more."

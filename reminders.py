@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from conversation import ACTIVE
 from database import SessionLocal
-from messaging import send_whatsapp_message
+from messaging import send_with_audit
 from models import User
 
 REMINDER_TIMEZONE = ZoneInfo("Asia/Kolkata")
@@ -63,18 +63,27 @@ def send_reminder(reminder: MealReminder) -> int:
     sent = 0
     try:
         active_phones = db.scalars(
-            select(User.phone).where(User.onboarding_state == ACTIVE)
+            select(User.phone).where(
+                User.onboarding_state == ACTIVE,
+                User.reminders_enabled == True,  # noqa: E712 (SQLAlchemy needs `== True`, not `is True`)
+            )
         ).all()
         for phone in active_phones:
-            try:
-                send_whatsapp_message(
-                    whatsapp_address(phone),
-                    sender,
-                    reminder.message,
-                )
+            outbound_message = send_with_audit(
+                db,
+                recipient=whatsapp_address(phone),
+                sender=sender,
+                body=reminder.message,
+                phone=phone,
+                kind="reminder",
+            )
+            if outbound_message.status == "sent":
                 sent += 1
-            except Exception as error:
-                print(f"[reminder:{reminder.meal}] Could not message {phone}: {error}")
+            else:
+                print(
+                    f"[reminder:{reminder.meal}] Could not message "
+                    f"{phone}: {outbound_message.error}"
+                )
     finally:
         db.close()
 

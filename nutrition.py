@@ -1,4 +1,6 @@
 import base64
+import time
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
@@ -88,10 +90,30 @@ Rules:
 class NutritionError(Exception):
     """Raised when Gemini cannot produce a valid nutrition estimate."""
 
-def analyze_meal_image(
+
+DEFAULT_MODEL = "gemini-flash-latest"
+
+
+@dataclass(frozen=True)
+class AnalysisResult:
+    """A MealImageAnalysis plus call metadata, for the eval harness."""
+
+    analysis: MealImageAnalysis
+    latency_seconds: float
+    input_tokens: int | None
+    output_tokens: int | None
+    total_tokens: int | None
+
+
+def analyze_meal_image_with_usage(
     image_path: Path,
     mime_type: str,
-) -> MealImageAnalysis:
+    *,
+    model: str = DEFAULT_MODEL,
+    prompt: str = NUTRITION_PROMPT,
+) -> AnalysisResult:
+    """Like analyze_meal_image, but also returns latency and token usage
+    (used by the eval harness to compare prompt/model versions)."""
 
     with image_path.open("rb") as f:
         image_bytes = f.read()
@@ -100,10 +122,11 @@ def analyze_meal_image(
 
     client = genai.Client()
 
+    started_at = time.perf_counter()
     try:
 
       interaction = client.interactions.create(
-          model="gemini-flash-latest",
+          model=model,
           input=[
               {
                   "type": "image",
@@ -112,7 +135,7 @@ def analyze_meal_image(
               },
               {
                   "type": "text",
-                  "text": NUTRITION_PROMPT,
+                  "text": prompt,
               },
           ],
           response_format={
@@ -122,10 +145,33 @@ def analyze_meal_image(
           },
       )
 
-      return MealImageAnalysis.model_validate_json(interaction.output_text)
+      analysis = MealImageAnalysis.model_validate_json(interaction.output_text)
 
     except Exception as e:
       raise NutritionError(f"Failed to analyze meal image: {e}") from e
+
+    latency_seconds = time.perf_counter() - started_at
+    usage = getattr(interaction, "usage", None)
+
+    return AnalysisResult(
+        analysis=analysis,
+        latency_seconds=latency_seconds,
+        input_tokens=getattr(usage, "total_input_tokens", None),
+        output_tokens=getattr(usage, "total_output_tokens", None),
+        total_tokens=getattr(usage, "total_tokens", None),
+    )
+
+
+def analyze_meal_image(
+    image_path: Path,
+    mime_type: str,
+    *,
+    model: str = DEFAULT_MODEL,
+    prompt: str = NUTRITION_PROMPT,
+) -> MealImageAnalysis:
+    return analyze_meal_image_with_usage(
+        image_path, mime_type, model=model, prompt=prompt
+    ).analysis
 
 
 def format_range(nutrient_range: NutritionRange, unit: str) -> str:

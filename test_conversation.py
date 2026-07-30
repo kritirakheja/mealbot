@@ -29,7 +29,8 @@ def test_full_onboarding_flow():
     assert user.onboarding_state == ACTIVE
     assert (
         reply
-        == "You're set: 2,000 kcal and 150g protein daily.\nSend a meal photo whenever you eat."
+        == "You're set: 2,000 kcal and 150g protein daily.\nSend a meal photo "
+        "whenever you eat. Type 'help' anytime to see what else I can do."
     )
 
 def test_bad_input_does_not_advance():
@@ -50,3 +51,51 @@ def test_non_positive_input_does_not_advance():
         assert reply == "Please send a number, like 1800."
         assert user.onboarding_state == AWAITING_CALORIE_GOAL
         assert user.calorie_goal is None
+
+
+def test_goals_command_from_active_reenters_goal_collection():
+    user = FakeUser()
+    handle_message(user, "start")
+    handle_message(user, "2000")
+    handle_message(user, "150")
+    assert user.onboarding_state == ACTIVE
+
+    reply = handle_message(user, "goals")
+
+    assert user.onboarding_state == AWAITING_CALORIE_GOAL
+    assert "update your goals" in reply.lower()
+    # Old goals stay until the user actually answers the new prompts.
+    assert user.calorie_goal == 2000
+
+    handle_message(user, "1600")
+    reply = handle_message(user, "120")
+
+    assert user.onboarding_state == ACTIVE
+    assert user.calorie_goal == 1600
+    assert user.protein_goal == 120
+
+
+def test_start_from_new_user_says_welcome_not_update():
+    user = FakeUser()
+
+    reply = handle_message(user, "start")
+
+    assert reply == "Welcome! What is your daily calorie goal?"
+
+
+def test_help_mid_onboarding_explains_product_without_advancing_state():
+    user = FakeUser()
+    handle_message(user, "start")
+
+    reply = handle_message(user, "help")
+
+    assert "MealBot" in reply
+    assert user.onboarding_state == AWAITING_CALORIE_GOAL
+
+
+def test_help_before_start_points_to_start():
+    user = FakeUser()
+
+    reply = handle_message(user, "help")
+
+    assert "start" in reply.lower()
