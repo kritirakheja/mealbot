@@ -1,13 +1,13 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from database import Base
-from main import (
+from daily_progress import (
     DailyNutritionTotals,
     format_daily_progress,
     get_daily_nutrition_totals,
 )
-from models import Meal, NutritionEstimate, User
+from database import Base
+from models import Meal, NutritionEstimateRecord, User
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -39,7 +39,7 @@ def add_meal_with_estimate(
     db.add(meal)
     db.flush()
     db.add(
-        NutritionEstimate(
+        NutritionEstimateRecord(
             meal_id=meal.id,
             food_items=[],
             calories_min=calories[0],

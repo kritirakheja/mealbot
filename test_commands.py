@@ -8,7 +8,7 @@ import main
 import messaging
 import reminders
 from database import Base, get_db
-from models import Meal, NutritionEstimate, User
+from models import Meal, NutritionEstimateRecord, User
 
 
 def make_client(tmp_path, monkeypatch):
@@ -87,7 +87,7 @@ def add_analyzed_meal(
     db.add(meal)
     db.flush()
     db.add(
-        NutritionEstimate(
+        NutritionEstimateRecord(
             meal_id=meal.id,
             food_items=[{"name": food_name}],
             calories_min=calories[0],
@@ -163,7 +163,7 @@ def test_undo_removes_last_meal_from_totals(tmp_path, monkeypatch):
     db = session_factory()
     meal = db.scalar(select(Meal).where(Meal.twilio_message_sid == "SID_MEAL_UNDO"))
     estimate = db.scalar(
-        select(NutritionEstimate).where(NutritionEstimate.meal_id == meal.id)
+        select(NutritionEstimateRecord).where(NutritionEstimateRecord.meal_id == meal.id)
     )
     db.close()
     assert meal.status == "undone"

@@ -1,12 +1,12 @@
 from pathlib import Path
 
-import main
+import analysis_job
 import messaging
 from database import Base
 from models import (
     Meal,
     MealAnalysisAttempt,
-    NutritionEstimate as NutritionEstimateRecord,
+    NutritionEstimateRecord,
     User,
 )
 from nutrition import (
@@ -100,9 +100,9 @@ def test_nutrition_result_persists_without_external_calls(
     meal_id = create_stored_meal(session_factory, "SM_SUCCESS")
     sent_messages = []
 
-    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    monkeypatch.setattr(analysis_job, "SessionLocal", session_factory)
     monkeypatch.setattr(
-        main,
+        analysis_job,
         "analyze_meal_image",
         lambda image_path, mime_type: build_analysis(),
     )
@@ -112,7 +112,7 @@ def test_nutrition_result_persists_without_external_calls(
         lambda recipient, sender, message: sent_messages.append(message),
     )
 
-    main.analyze_and_reply(
+    analysis_job.analyze_and_reply(
         meal_id=meal_id,
         image_path=Path("unused-test-image.jpg"),
         image_content_type="image/jpeg",
@@ -165,16 +165,16 @@ def test_nutrition_failure_persists_without_external_calls(
     def fail_analysis(image_path, mime_type):
         raise NutritionError("test analysis failure")
 
-    monkeypatch.setattr(main.time, "sleep", lambda seconds: None)
-    monkeypatch.setattr(main, "SessionLocal", session_factory)
-    monkeypatch.setattr(main, "analyze_meal_image", fail_analysis)
+    monkeypatch.setattr(analysis_job.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(analysis_job, "SessionLocal", session_factory)
+    monkeypatch.setattr(analysis_job, "analyze_meal_image", fail_analysis)
     monkeypatch.setattr(
         messaging,
         "send_whatsapp_message",
         lambda recipient, sender, message: sent_messages.append(message),
     )
 
-    main.analyze_and_reply(
+    analysis_job.analyze_and_reply(
         meal_id=meal_id,
         image_path=Path("unused-test-image.jpg"),
         image_content_type="image/jpeg",
@@ -222,9 +222,9 @@ def test_unusable_image_is_audited_without_nutrition_log(
         estimate=None,
     )
 
-    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    monkeypatch.setattr(analysis_job, "SessionLocal", session_factory)
     monkeypatch.setattr(
-        main,
+        analysis_job,
         "analyze_meal_image",
         lambda image_path, mime_type: blurry_analysis,
     )
@@ -234,7 +234,7 @@ def test_unusable_image_is_audited_without_nutrition_log(
         lambda recipient, sender, message: sent_messages.append(message),
     )
 
-    main.analyze_and_reply(
+    analysis_job.analyze_and_reply(
         meal_id=meal_id,
         image_path=Path("unused-test-image.jpg"),
         image_content_type="image/jpeg",
@@ -282,16 +282,16 @@ def test_analysis_retries_transient_failure_then_succeeds(
             raise NutritionError("transient network error")
         return build_analysis()
 
-    monkeypatch.setattr(main.time, "sleep", lambda seconds: None)
-    monkeypatch.setattr(main, "SessionLocal", session_factory)
-    monkeypatch.setattr(main, "analyze_meal_image", flaky_analysis)
+    monkeypatch.setattr(analysis_job.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(analysis_job, "SessionLocal", session_factory)
+    monkeypatch.setattr(analysis_job, "analyze_meal_image", flaky_analysis)
     monkeypatch.setattr(
         messaging,
         "send_whatsapp_message",
         lambda recipient, sender, message: sent_messages.append(message),
     )
 
-    main.analyze_and_reply(
+    analysis_job.analyze_and_reply(
         meal_id=meal_id,
         image_path=Path("unused-test-image.jpg"),
         image_content_type="image/jpeg",
@@ -323,7 +323,7 @@ def test_recover_stuck_meals_marks_failed_and_notifies(monkeypatch, tmp_path):
     sent_messages = []
 
     monkeypatch.setenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
-    monkeypatch.setattr(main, "SessionLocal", session_factory)
+    monkeypatch.setattr(analysis_job, "SessionLocal", session_factory)
     monkeypatch.setattr(
         messaging,
         "send_whatsapp_message",
@@ -332,7 +332,7 @@ def test_recover_stuck_meals_marks_failed_and_notifies(monkeypatch, tmp_path):
         ),
     )
 
-    recovered = main.recover_stuck_meals()
+    recovered = analysis_job.recover_stuck_meals()
 
     verification_db = session_factory()
     saved_meal = verification_db.get(Meal, meal_id)

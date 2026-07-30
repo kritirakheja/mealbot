@@ -60,7 +60,7 @@ class Meal(Base):
     clarification_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
-class NutritionEstimate(Base):
+class NutritionEstimateRecord(Base):
     __tablename__ = "nutrition_estimates"
 
     id: Mapped[int] = mapped_column(primary_key=True)
