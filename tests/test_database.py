@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, inspect, select
 
 from database import sync_schema
-from models import Meal
+from models import Meal, User
 
 
 def make_stale_engine(tmp_path):
@@ -64,3 +64,46 @@ def test_sync_schema_is_idempotent(tmp_path):
 
     columns = {col["name"] for col in inspect(engine).get_columns("meals")}
     assert "updated_at" in columns
+
+
+def make_stale_users_engine(tmp_path):
+    """A `users` table predating only `reminders_enabled` (updated_at is
+    already present, as it would be for a genuinely pre-existing column) —
+    reproduces the second Render failure: `reminders_enabled` is NOT NULL
+    with only a Python-side (ORM) default, so a naive ALTER TABLE ... ADD
+    COLUMN with no DDL DEFAULT hits SQLite's "Cannot add a NOT NULL column
+    with default value NULL".
+    """
+    database_path = tmp_path / "stale_users.db"
+    engine = create_engine(f"sqlite:///{database_path}")
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            """
+            CREATE TABLE users (
+                phone VARCHAR(20) PRIMARY KEY,
+                calorie_goal INTEGER,
+                protein_goal INTEGER,
+                onboarding_state VARCHAR(32),
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO users (phone, onboarding_state) VALUES ('+15551234567', 'active')"
+        )
+    return engine
+
+
+def test_sync_schema_backfills_not_null_column_on_table_with_existing_rows(tmp_path):
+    engine = make_stale_users_engine(tmp_path)
+
+    sync_schema(bind=engine)
+
+    columns = {col["name"] for col in inspect(engine).get_columns("users")}
+    assert "reminders_enabled" in columns
+
+    with engine.connect() as conn:
+        result = conn.execute(select(User).where(User.phone == "+15551234567"))
+        (user,) = result.fetchall()
+        assert user.reminders_enabled == True  # noqa: E712 (SQLite stores as 0/1)
