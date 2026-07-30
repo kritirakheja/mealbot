@@ -11,7 +11,7 @@ from twilio.twiml.messaging_response import MessagingResponse
 
 from analysis_job import analyze_and_reply, recover_stuck_meals
 from commands import HELP_TEXT, build_today_summary, get_pending_meal, undo_last_meal
-from database import Base, engine, get_db
+from database import get_db, sync_schema
 from models import InboundMessage, Meal, User
 
 from conversation import ACTIVE, handle_message, normalize_phone
@@ -28,7 +28,7 @@ VALIDATE_TWILIO_SIGNATURE = os.getenv(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    sync_schema()
     await asyncio.to_thread(recover_stuck_meals)
     reminder_tasks = start_reminder_tasks()
     try:
