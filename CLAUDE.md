@@ -29,8 +29,8 @@ pytest
 Run a single test file or test:
 
 ```bash
-pytest test_decision_policy.py
-pytest test_decision_policy.py::test_name -v
+pytest tests/test_decision_policy.py
+pytest tests/test_decision_policy.py::test_name -v
 ```
 
 Manually exercise the Gemini nutrition analysis against a saved image in `uploads/` (edit the path in the script first):
