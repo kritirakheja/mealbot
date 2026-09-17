@@ -6,6 +6,31 @@ against goals set during onboarding.
 
 Backend is a single FastAPI app backed by SQLite.
 
+## Demo
+
+Recreated chat mockups, not live phone screenshots — each one renders the
+bot's actual reply text, produced by running the real code (onboarding via
+`conversation.handle_message`, the nutrition reply via a real Gemini call on
+`eval/golden/images/fried_rice_bowl.jpg` passed through `decision_policy.py`
+and `format_nutrition_reply`, and the `today` summary via
+`commands.build_today_summary`). The clarifying-question case feeds
+`decide_meal_action` — the real, deterministic policy function — a
+representative ambiguous analysis, since that's the one path that depends on
+Gemini judging a specific photo as ambiguous.
+
+| Onboarding | Auto-logged meal |
+|---|---|
+| ![Onboarding: setting calorie/protein goals](docs/screenshots/onboarding.svg) | ![A meal photo logged automatically with remaining calories/protein](docs/screenshots/auto-log.svg) |
+
+| Clarifying question | `today` summary |
+|---|---|
+| ![The bot asking a clarifying question instead of guessing](docs/screenshots/clarifying-question.svg) | ![Daily summary from the `today` command](docs/screenshots/today-summary.svg) |
+
+The clarifying-question case is the most distinctive part of the design: rather than
+always trusting the model's nutrition estimate, [`decision_policy.py`](decision_policy.py)
+only auto-logs when the model is confident about both the dish and the portion size —
+otherwise it asks instead of guessing.
+
 ## How it works
 
 1. Text the bot on WhatsApp to onboard: set a daily calorie goal and a daily
@@ -117,6 +142,11 @@ module responsibilities, and data model. Briefly:
 
 ## Deployment
 
-Configured for [Render](https://render.com) via [render.yaml](render.yaml):
-a single web service running `uvicorn main:app`, with a persistent disk
-mounted at `/data` for the SQLite database and uploaded images.
+Not currently deployed — run locally per the instructions above. The app is
+designed to run as a single always-on process (FastAPI + SQLite on local/
+persistent disk), which rules out scale-to-zero serverless hosts: the meal
+reminders in [reminders.py](reminders.py) are `asyncio` loops that need the
+process to stay alive continuously. [render.yaml](render.yaml) is kept as an
+example of one hosting configuration that satisfies this (a single Render
+web service with a persistent disk mounted for the SQLite database and
+uploaded images), not as a live deployment.
